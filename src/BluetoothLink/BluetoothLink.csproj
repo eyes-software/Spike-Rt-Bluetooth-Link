@@ -21,10 +21,11 @@
     AssemblyVersion / FileVersion はここから自動で決まり、画面のタイトルバーにも表示される。
   -->
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>BluetoothLink</Product>
     <Description>Bluetooth Classic (RFCOMM/SPP) と BLE (GATT) に対応したデータ送受信ツール</Description>
-    <!-- <Company>会社名を入れる</Company> -->
+    <Company>EYES-SOFTWARE Co.,Ltd.</Company>
+    <Copyright>Copyright © EYES-SOFTWARE Co.,Ltd.</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
