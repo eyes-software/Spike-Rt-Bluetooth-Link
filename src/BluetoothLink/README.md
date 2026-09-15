@@ -20,14 +20,27 @@ PC 上で動作する Bluetooth データ送受信ツール (C# / WinForms)。
 ## ビルドと実行
 
 ```bash
-dotnet build src/BluetoothLink/BluetoothLink.sln -c Release
+dotnet build BluetoothLink.sln -c Release
 ```
 
 ```bash
 dotnet run --project src/BluetoothLink/BluetoothLink.csproj
 ```
 
-`BluetoothLink.sln` は Visual Studio 2022 でもそのまま開けます。
+リポジトリ直下の `BluetoothLink.sln` は Visual Studio 2022 でもそのまま開けます
+(アプリ本体と `tests/` 配下の検証プロジェクトが入っています)。
+
+## リポジトリ構成
+
+```
+BluetoothLink.sln
+src/BluetoothLink/     … アプリ本体
+tests/                 … 検証プロジェクト (tests/README.md 参照)
+```
+
+バージョンは `src/BluetoothLink/BluetoothLink.csproj` の `<Version>` で管理します
+(機能追加は 1.1.0、修正は 1.0.1 のように上げる)。画面のタイトルバーに表示され、
+ビルドされたバイナリの ProductVersion にはコミットハッシュも付きます。
 
 ## プリセット
 
