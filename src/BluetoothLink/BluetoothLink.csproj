@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- BLE (Windows.Devices.Bluetooth の投影) を使うため 10.0.19041 を指定する -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>BluetoothLink</RootNamespace>
+    <AssemblyName>BluetoothLink</AssemblyName>
+    <Platforms>AnyCPU</Platforms>
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Bluetooth Classic (RFCOMM/SPP) -->
+    <PackageReference Include="InTheHand.Net.Bluetooth" Version="4.2.4" />
+    <!-- Bluetooth Low Energy (GATT) -->
+    <PackageReference Include="InTheHand.BluetoothLE" Version="4.0.44" />
+  </ItemGroup>
+
+</Project>
