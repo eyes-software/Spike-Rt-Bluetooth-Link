@@ -230,6 +230,13 @@ public partial class MainForm : Form
         await LoadPairedDevicesAsync(quiet: false);
     }
 
+    /// <summary>
+    /// ペアリング済みデバイスを一覧へ読み込む。
+    /// </summary>
+    /// <param name="quiet">
+    /// 起動時の自動読み込み。ボタンを塞ぐと起動直後に操作できなくなるため、
+    /// この場合は busy 状態にせず、失敗しても黙って諦める。
+    /// </param>
     private async Task LoadPairedDevicesAsync(bool quiet)
     {
         if (_busy)
@@ -238,12 +245,22 @@ public partial class MainForm : Form
         }
 
         var kind = CurrentPreset.Kind;
-        SetBusy(true, "ペアリング済みデバイスを取得しています...");
+        if (!quiet)
+        {
+            SetBusy(true, "ペアリング済みデバイスを取得しています...");
+        }
+
         try
         {
             var devices = kind == LinkKind.Classic
                 ? await DeviceService.GetPairedAsync()
                 : await BleService.GetPairedAsync();
+
+            // 起動時の読み込みが遅れている間に検索が始まっていたら、その結果を上書きしない。
+            if (quiet && (_bleScanner is { IsScanning: true } || _busy))
+            {
+                return;
+            }
 
             FillDeviceList(devices, kind);
             if (!quiet)
@@ -260,7 +277,10 @@ public partial class MainForm : Form
         }
         finally
         {
-            SetBusy(false);
+            if (!quiet)
+            {
+                SetBusy(false);
+            }
         }
     }
 
