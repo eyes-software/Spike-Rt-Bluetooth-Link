@@ -16,6 +16,17 @@
     <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!--
+    製品バージョン。機能追加は 1.1.0、修正は 1.0.1 のように上げる (セマンティックバージョニング)。
+    AssemblyVersion / FileVersion はここから自動で決まり、画面のタイトルバーにも表示される。
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Product>BluetoothLink</Product>
+    <Description>Bluetooth Classic (RFCOMM/SPP) と BLE (GATT) に対応したデータ送受信ツール</Description>
+    <!-- <Company>会社名を入れる</Company> -->
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- Bluetooth Classic (RFCOMM/SPP) -->
     <PackageReference Include="InTheHand.Net.Bluetooth" Version="4.2.4" />

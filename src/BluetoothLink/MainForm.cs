@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using BluetoothLink.Core;
 
@@ -49,6 +50,25 @@ public partial class MainForm : Form
     /// <summary>いま選ばれているプリセット。</summary>
     private LinkPreset CurrentPreset => (LinkPreset)cmbPreset.SelectedItem!;
 
+    /// <summary>csproj の Version から取り出した製品バージョン。</summary>
+    private static string AppVersion
+    {
+        get
+        {
+            var informational = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+
+            if (!string.IsNullOrWhiteSpace(informational))
+            {
+                // "1.0.0+<コミットハッシュ>" の形になることがあるので手前だけ使う。
+                return informational.Split('+')[0];
+            }
+
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return version is null ? "1.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
+        }
+    }
+
     // ------------------------------------------------------------------
     // 初期化 / 終了
     // ------------------------------------------------------------------
@@ -85,6 +105,7 @@ public partial class MainForm : Form
         // プリセットを選ぶと UUID・区切りなどが埋まる。
         cmbPreset.SelectedItem = LinkPreset.Default;
 
+        Text = $"BluetoothLink {AppVersion} - Bluetooth データ送受信ツール";
         lblRadio.Text = DeviceService.DescribeRadio();
         lblLogPath.Text = $"出力先: {_loggerOptions.Directory}";
 
