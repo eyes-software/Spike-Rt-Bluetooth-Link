@@ -21,7 +21,7 @@
     AssemblyVersion / FileVersion はここから自動で決まり、画面のタイトルバーにも表示される。
   -->
   <PropertyGroup>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <Product>BluetoothLink</Product>
     <Description>Bluetooth Classic (RFCOMM/SPP) と BLE (GATT) に対応したデータ送受信ツール</Description>
     <Company>EYES-SOFTWARE Co.,Ltd.</Company>

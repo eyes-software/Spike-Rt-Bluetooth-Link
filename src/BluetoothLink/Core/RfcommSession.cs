@@ -69,8 +69,16 @@ public sealed class RfcommSession : ILinkSession
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _stream.WriteAsync(framed, cancellationToken).ConfigureAwait(false);
-            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _stream.WriteAsync(framed, cancellationToken).ConfigureAwait(false);
+                await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // 1 回の書き込みなので、途中まで届いたかどうかは判別できない。
+                throw new SendFailedException([], ex);
+            }
         }
         finally
         {

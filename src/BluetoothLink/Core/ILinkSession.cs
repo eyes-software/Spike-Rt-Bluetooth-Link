@@ -19,6 +19,17 @@ public sealed class SessionClosedEventArgs(ILinkSession session, string reason, 
 }
 
 /// <summary>
+/// 送信が途中で失敗したことを表す。相手にはすでに <see cref="SentData"/> の分が届いている
+/// 可能性があるため、呼び出し側はこれをログへ残すこと。
+/// </summary>
+public sealed class SendFailedException(byte[] sentData, Exception inner)
+    : Exception(inner.Message, inner)
+{
+    /// <summary>実際に送出できたバイト列 (区切りを含む)。分からない場合は空。</summary>
+    public byte[] SentData { get; } = sentData;
+}
+
+/// <summary>
 /// 確立済みの接続 1 本。RFCOMM (Classic) と GATT (BLE) の違いを画面側から隠す。
 /// イベントはバックグラウンドスレッドで発生するため、UI からは必ずマーシャリングして使うこと。
 /// </summary>

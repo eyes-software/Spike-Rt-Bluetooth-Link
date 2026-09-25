@@ -54,6 +54,8 @@ public sealed class DataLogger : IDisposable
 
     private LogSink? _sink;
     private long _lastDropped;
+    private long _lastWriteErrors;
+    private string? _lastWriteErrorMessage;
     private bool _disposed;
 
     public DataLogger(DataLoggerOptions options)
@@ -77,6 +79,18 @@ public sealed class DataLogger : IDisposable
     public long DroppedCount => Volatile.Read(ref _sink)?.Dropped ?? Interlocked.Read(ref _lastDropped);
 
     /// <summary>
+    /// ディスクへ書けずに失われた件数。待ち行列のあふれとは別に数える。
+    /// 0 以外なら画面に出して知らせること (黙って消えるのを防ぐ)。
+    /// </summary>
+    public long WriteErrorCount => Volatile.Read(ref _sink)?.WriteErrors ?? Interlocked.Read(ref _lastWriteErrors);
+
+    /// <summary>直近の書き出しエラーの内容。原因を画面に出すために使う。</summary>
+    public string? LastWriteError => Volatile.Read(ref _sink)?.LastWriteError ?? _lastWriteErrorMessage;
+
+    /// <summary>記録できなかった合計件数 (待ち行列あふれ + 書き出し失敗)。</summary>
+    public long LostCount => DroppedCount + WriteErrorCount;
+
+    /// <summary>
     /// 新しいセッション用のファイルを開く。既に開いている場合は閉じてから開き直す。
     /// </summary>
     /// <param name="tag">ファイル名に含める識別子 (接続相手名など)。</param>
@@ -89,6 +103,8 @@ public sealed class DataLogger : IDisposable
             CloseCore();
 
             Interlocked.Exchange(ref _lastDropped, 0);
+            Interlocked.Exchange(ref _lastWriteErrors, 0);
+            _lastWriteErrorMessage = null;
 
             var sink = new LogSink(_options, tag);
             Volatile.Write(ref _sink, sink);
@@ -158,6 +174,8 @@ public sealed class DataLogger : IDisposable
 
         // 閉じたあとも件数を参照できるようにしておく。
         Interlocked.Exchange(ref _lastDropped, sink.Dropped);
+        Interlocked.Exchange(ref _lastWriteErrors, sink.WriteErrors);
+        _lastWriteErrorMessage = sink.LastWriteError;
     }
 }
 
@@ -172,12 +190,19 @@ internal sealed class LogSink
     private readonly FileStream? _txRaw;
     private readonly FileStream? _rxRaw;
 
+    private readonly Encoding _textEncoding;
+
     private long _dropped;
+    private long _writeErrors;
+    private string? _lastWriteError;
     private int _completed;
 
     public LogSink(DataLoggerOptions options, string tag)
     {
         _options = options;
+
+        // 途中で設定を変えられてもファイル内で表記が揺れないよう、開いた時点の値を固定する。
+        _textEncoding = options.TextEncoding;
 
         System.IO.Directory.CreateDirectory(options.Directory);
 
@@ -201,7 +226,7 @@ internal sealed class LogSink
             _textWriter.WriteLine("# BluetoothLink データログ");
             _textWriter.WriteLine($"# 開始: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
             _textWriter.WriteLine($"# 相手: {tag}");
-            _textWriter.WriteLine($"# 文字コード(表示用): {options.TextEncoding.WebName}");
+            _textWriter.WriteLine($"# 文字コード(表示用): {_textEncoding.WebName}");
             _textWriter.WriteLine("# 時刻\t方向\tバイト数\t16進\tテキスト");
         }
 
@@ -225,6 +250,10 @@ internal sealed class LogSink
     public string? TextPath { get; }
 
     public long Dropped => Interlocked.Read(ref _dropped);
+
+    public long WriteErrors => Interlocked.Read(ref _writeErrors);
+
+    public string? LastWriteError => Volatile.Read(ref _lastWriteError);
 
     public void Enqueue(LogEntry entry)
     {
@@ -327,13 +356,16 @@ internal sealed class LogSink
                 return message.Length;
             }
         }
-        catch (IOException)
-        {
-            // ディスク側の問題で書けなくても、通信は続行させる。
-        }
         catch (ObjectDisposedException)
         {
-            // 閉じた直後に届いた分は捨ててよい。
+            // 閉じた直後に届いた分は捨ててよい。件数には数えない。
+        }
+        catch (Exception ex)
+        {
+            // ディスク満杯やドライブ切断など。通信は続行させるが、
+            // 黙って消えると気づけないので必ず数えて記録する。
+            Interlocked.Increment(ref _writeErrors);
+            Volatile.Write(ref _lastWriteError, $"{ex.GetType().Name}: {ex.Message}");
         }
 
         return 0;
@@ -365,6 +397,11 @@ internal sealed class LogSink
                     _textWriter.WriteLine($"# 待ち行列あふれで記録できなかった件数: {Dropped}");
                 }
 
+                if (WriteErrors > 0)
+                {
+                    _textWriter.WriteLine($"# 書き出し失敗で記録できなかった件数: {WriteErrors} ({LastWriteError})");
+                }
+
                 _textWriter.Dispose();
             }
 
@@ -381,7 +418,7 @@ internal sealed class LogSink
     {
         try
         {
-            return _options.TextEncoding.GetString(payload);
+            return _textEncoding.GetString(payload);
         }
         catch (DecoderFallbackException)
         {

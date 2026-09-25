@@ -162,10 +162,24 @@ public sealed class BleSession : ILinkSession
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // MTU で分割して複数回書くため、途中で失敗すると相手には一部だけ届く。
+            // どこまで送れたかを持ち回り、失敗時に呼び出し側へ渡す。
+            var sent = 0;
+
             foreach (var buffer in writes)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await WriteAsync(_writeCharacteristic, buffer).ConfigureAwait(false);
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await WriteAsync(_writeCharacteristic, buffer).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new SendFailedException(framed[..sent], ex);
+                }
+
+                // プロトコル上の先頭バイトは本体ではないので除く。
+                sent += buffer.Length - (_writePrefix is null ? 0 : 1);
             }
         }
         finally

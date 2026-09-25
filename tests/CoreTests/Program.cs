@@ -1,6 +1,9 @@
 using System.Text;
 using BluetoothLink.Core;
 
+// Shift_JIS を使う検証があるため、アプリ本体と同じくコードページを有効化する。
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 var failures = 0;
 
 void Check(string name, bool ok, string? detail = null)
@@ -283,7 +286,59 @@ Check("ToHex truncates with ellipsis", HexUtil.ToHex(new byte[] { 1, 2, 3, 4 }, 
         Check("concurrent writes: all well-formed", lines.All(l => l.Split('\t').Length == 5));
     }
 
+    // 欠落件数は閉じたあとも参照できる (セッション終了後に 0 へ戻らない)
+    {
+        using var logger = new DataLogger(new DataLoggerOptions { Directory = dir });
+        logger.Open("counters");
+        logger.LogData(TransferDirection.Rx, "x"u8.ToArray());
+        logger.Close();
+
+        Check("正常時は書き出しエラー 0",
+            logger.DroppedCount == 0 && logger.WriteErrorCount == 0 && logger.LostCount == 0);
+        Check("正常時はエラー内容なし", logger.LastWriteError is null);
+    }
+
+    // 文字コードは「開いた時点」の設定で固定される (途中で差し替えられても揺れない)
+    {
+        var encodingOptions = new DataLoggerOptions { Directory = dir, TextEncoding = Encoding.UTF8 };
+        var payload = Encoding.GetEncoding("shift_jis").GetBytes("日本語");
+
+        string path;
+        using (var logger = new DataLogger(encodingOptions))
+        {
+            path = logger.Open("encoding");
+            logger.LogData(TransferDirection.Rx, payload);
+
+            // 途中で設定を差し替える
+            encodingOptions.TextEncoding = Encoding.GetEncoding("shift_jis");
+            logger.LogData(TransferDirection.Rx, payload);
+            logger.Close();
+        }
+
+        var text = File.ReadAllText(path);
+        Check("ヘッダの文字コードは開いた時点のもの", text.Contains("文字コード(表示用): utf-8"));
+
+        var rows = File.ReadAllLines(path)
+            .Where(l => l.Contains("\tRX\t"))
+            .Select(l => l.Split('\t')[4])
+            .ToArray();
+        Check("途中で変更しても解釈は変わらない", rows.Length == 2 && rows[0] == rows[1],
+            rows.Length == 2 ? $"'{rows[0]}' vs '{rows[1]}'" : $"{rows.Length} 行");
+    }
+
     Directory.Delete(dir, true);
+}
+
+// ---------- 送信失敗の通知 ----------
+{
+    var inner = new IOException("接続が切れました");
+    var failed = new SendFailedException([0x41, 0x42, 0x43], inner);
+    Check("SendFailedException が送出済みバイトを持つ",
+        failed.SentData.AsSpan().SequenceEqual("ABC"u8) && ReferenceEquals(failed.InnerException, inner));
+    Check("SendFailedException のメッセージは原因を引き継ぐ", failed.Message == "接続が切れました");
+
+    var unknown = new SendFailedException([], inner);
+    Check("送出量が不明な場合は空", unknown.SentData.Length == 0);
 }
 
 Console.WriteLine(failures == 0 ? "\nALL PASS" : $"\n{failures} FAILED");

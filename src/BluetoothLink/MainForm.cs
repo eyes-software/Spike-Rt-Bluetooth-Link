@@ -28,6 +28,7 @@ public partial class MainForm : Form
     private BleScanner? _bleScanner;
     private long _renderedScanVersion = -1;
     private bool _renderedScanning;
+    private bool _reportedWriteError;
     private LinkKind _listedKind = LinkKind.Classic;
     private string _lastStatusText = string.Empty;
     private PybricksStatusReport? _latestStatus;
@@ -863,6 +864,23 @@ public partial class MainForm : Form
                     _stats.AddTx(payload.Length);
                     _monitor.AddData(TransferDirection.Tx, session.DisplayName, payload);
                 }
+                catch (SendFailedException ex)
+                {
+                    // 途中まで相手へ届いている可能性があるので、その分は送信として残す。
+                    if (ex.SentData.Length > 0)
+                    {
+                        _logger.LogData(TransferDirection.Tx, ex.SentData);
+                        _stats.AddTx(ex.SentData.Length);
+                        _monitor.AddData(TransferDirection.Tx, session.DisplayName, ex.SentData);
+                    }
+
+                    var detail = ex.SentData.Length > 0
+                        ? $"{ex.SentData.Length} バイト送出後に中断"
+                        : "送出できた量は不明";
+                    var message = $"送信に失敗しました ({session.DisplayName}): {ex.Message} ({detail})";
+                    AppendLog(TransferDirection.Error, message);
+                    _logger.LogEvent(TransferDirection.Error, message);
+                }
                 catch (Exception ex)
                 {
                     var message = $"送信に失敗しました ({session.DisplayName}): {ex.Message}";
@@ -930,6 +948,8 @@ public partial class MainForm : Form
     {
         _loggerOptions.WriteRawBinary = chkWriteRaw.Checked;
         _loggerOptions.TextEncoding = CurrentEncoding();
+
+        _reportedWriteError = false;
 
         var path = _logger.Open(tag);
         lblLogPath.Text = $"出力先: {path}";
@@ -1042,9 +1062,25 @@ public partial class MainForm : Form
         var text = new StringBuilder(snapshot.Describe());
 
         var dropped = _logger.DroppedCount;
-        if (dropped > 0)
+        var writeErrors = _logger.WriteErrorCount;
+        var lost = dropped + writeErrors;
+
+        if (lost > 0)
         {
-            text.Append($"    ★記録欠落 {dropped:N0} 件");
+            text.Append($"    ★記録欠落 {lost:N0} 件");
+            if (dropped > 0 && writeErrors > 0)
+            {
+                text.Append($" (待ち行列 {dropped:N0} / 書き出し失敗 {writeErrors:N0})");
+            }
+        }
+
+        // 書き出しに失敗し始めたら、原因を一度だけモニタへ出す。
+        if (writeErrors > 0 && !_reportedWriteError)
+        {
+            _reportedWriteError = true;
+            AppendLog(
+                TransferDirection.Error,
+                $"ログの書き出しに失敗しています: {_logger.LastWriteError}  (出力先の空き容量とアクセス権を確認してください)");
         }
 
         var overwritten = _monitor.Overwritten;
@@ -1054,7 +1090,7 @@ public partial class MainForm : Form
         }
 
         lblStats.Text = text.ToString();
-        lblStats.ForeColor = dropped > 0 ? Color.FromArgb(200, 0, 0) : SystemColors.ControlText;
+        lblStats.ForeColor = lost > 0 ? Color.FromArgb(200, 0, 0) : SystemColors.ControlText;
     }
 
     private void UpdateMonitorView()
@@ -1182,6 +1218,9 @@ public partial class MainForm : Form
 
         cmbFraming.Enabled = !active;
         chkWriteRaw.Enabled = !active;
+
+        // 接続中に変えるとログファイルのヘッダと中身が食い違うため固定する。
+        cmbEncoding.Enabled = !active;
 
         var control = _sessions.OfType<BleSession>().FirstOrDefault(s => s.IsConnected && s.SupportsControl);
         btnPyStart.Enabled = control is not null && !_busy;

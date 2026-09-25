@@ -95,6 +95,33 @@ internal static class UiStateTest
         Check("未接続では切断ボタンが無効", !Get<Button>(form, "btnDisconnect").Enabled);
         Check("ステータスが未接続", Get<Label>(form, "lblStatus").Text == "未接続", Get<Label>(form, "lblStatus").Text);
 
+        // ---- 接続中は、ログの一貫性に関わる設定を固定する ----
+        {
+            var cmbEncoding = Get<ComboBox>(form, "cmbEncoding");
+            var cmbFraming = Get<ComboBox>(form, "cmbFraming");
+            Check("未接続では文字コードを変更できる", cmbEncoding.Enabled);
+
+            var sessions = (System.Collections.IList)typeof(MainForm)
+                .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+            var updateUiState = typeof(MainForm)
+                .GetMethod("UpdateUiState", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            sessions.Add(new FakeSession());
+            updateUiState.Invoke(form, null);
+            Pump(TimeSpan.FromMilliseconds(100));
+
+            Check("接続中は文字コードが固定される", !cmbEncoding.Enabled);
+            Check("接続中は区切りも固定される", !cmbFraming.Enabled);
+            Check("接続中は送信できる", Get<Button>(form, "btnSend").Enabled);
+            Check("接続中は切断できる", Get<Button>(form, "btnDisconnect").Enabled);
+
+            sessions.Clear();
+            updateUiState.Invoke(form, null);
+            Pump(TimeSpan.FromMilliseconds(100));
+
+            Check("切断すると文字コードを変更できる", cmbEncoding.Enabled);
+        }
+
         // ---- モニタ (仮想モード ListView) ----
         var monitorView = Get<ListView>(form, "lvMonitor");
         Check("モニタは仮想モード", monitorView.VirtualMode);
@@ -164,5 +191,31 @@ internal static class UiStateTest
         {
             _failures++;
         }
+    }
+
+    /// <summary>接続中の画面状態を確かめるためのダミーセッション。</summary>
+    private sealed class FakeSession : BluetoothLink.Core.ILinkSession
+    {
+        public BluetoothLink.Core.LinkKind Kind => BluetoothLink.Core.LinkKind.Ble;
+
+        public BluetoothLink.Core.ConnectionRole Role => BluetoothLink.Core.ConnectionRole.Client;
+
+        public BluetoothLink.Core.FramingMode Framing => BluetoothLink.Core.FramingMode.CrDelimited;
+
+        public string DisplayName => "UiTest Hub (00:11:22:33:44:55)";
+
+        public bool IsConnected => true;
+
+        public event EventHandler<BluetoothLink.Core.SessionDataReceivedEventArgs>? DataReceived { add { } remove { } }
+
+        public event EventHandler<BluetoothLink.Core.SessionClosedEventArgs>? Closed { add { } remove { } }
+
+        public void Start() { }
+
+        public Task SendAsync(byte[] payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public void Close(string reason = "") { }
+
+        public void Dispose() { }
     }
 }
