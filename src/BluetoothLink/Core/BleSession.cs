@@ -61,6 +61,10 @@ public sealed class BleSession : ILinkSession
     private readonly IReadOnlyList<NotifySource> _notifySources;
     private readonly GattCharacteristic? _controlCharacteristic;
     private readonly MessageAssembler _assembler;
+
+    // 受信通知スレッドと、切断を指示する UI スレッドの両方から触るため保護する。
+    private readonly object _assemblerGate = new();
+
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly int _negotiatedMaxWrite;
 
@@ -207,6 +211,10 @@ public sealed class BleSession : ILinkSession
         }
 
         Detach();
+
+        // 区切り待ちのまま残っているデータを捨てない (RfcommSession と挙動を揃える)。
+        FlushPending();
+
         SafeDisconnect();
         Closed?.Invoke(this, new SessionClosedEventArgs(this, reason, null));
     }
@@ -291,8 +299,17 @@ public sealed class BleSession : ILinkSession
             var status = PybricksProtocol.ParseStatusReport(e.Value);
             if (status is not null)
             {
+                var previous = LastStatus;
                 LastStatus = status;
                 StatusReported?.Invoke(this, new PybricksStatusEventArgs(status));
+
+                // プログラムが止まると stdout も止まる。接続は生きたままなので切断契機が来ず、
+                // 区切り待ちの最後の 1 行が取り残される。ここで吐き出しておく。
+                if (previous is { UserProgramRunning: true } && !status.UserProgramRunning)
+                {
+                    FlushPending();
+                }
+
                 return;
             }
         }
@@ -303,16 +320,38 @@ public sealed class BleSession : ILinkSession
             return;
         }
 
+        List<byte[]> messages;
         try
         {
-            foreach (var message in _assembler.Push(value, value.Length))
+            lock (_assemblerGate)
             {
-                DataReceived?.Invoke(this, new SessionDataReceivedEventArgs(this, message));
+                messages = _assembler.Push(value, value.Length).ToList();
             }
         }
         catch (InvalidDataException ex)
         {
             CloseWithError($"受信データの組み立てに失敗しました: {ex.Message}", ex);
+            return;
+        }
+
+        foreach (var message in messages)
+        {
+            DataReceived?.Invoke(this, new SessionDataReceivedEventArgs(this, message));
+        }
+    }
+
+    /// <summary>区切り待ちのまま残っているデータがあれば 1 件として取り出す。</summary>
+    private void FlushPending()
+    {
+        byte[]? rest;
+        lock (_assemblerGate)
+        {
+            rest = _assembler.Flush();
+        }
+
+        if (rest is { Length: > 0 })
+        {
+            DataReceived?.Invoke(this, new SessionDataReceivedEventArgs(this, rest));
         }
     }
 
@@ -324,14 +363,7 @@ public sealed class BleSession : ILinkSession
         }
 
         Detach();
-
-        // 区切り待ちのまま残ったデータがあれば拾っておく。
-        var rest = _assembler.Flush();
-        if (rest is { Length: > 0 })
-        {
-            DataReceived?.Invoke(this, new SessionDataReceivedEventArgs(this, rest));
-        }
-
+        FlushPending();
         Closed?.Invoke(this, new SessionClosedEventArgs(this, "相手側から切断されました。", null));
     }
 
@@ -342,6 +374,7 @@ public sealed class BleSession : ILinkSession
             return;
         }
 
+        // ここへ来るのは組み立てに失敗した場合なので、残りは信用できない。あえて吐き出さない。
         Detach();
         SafeDisconnect();
         Closed?.Invoke(this, new SessionClosedEventArgs(this, reason, error));
